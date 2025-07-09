@@ -133,6 +133,6 @@ def webhook():
 
 if __name__ == "__main__":
     # Set webhook once, then run Flask
-    bot.set_webhook(f"https://<your-pyanywhere-username>.pythonanywhere.com/{TOKEN}")
+    bot.set_webhook(f"https://<yanmyo35>.pythonanywhere.com/{TOKEN}")
     app.run(port=8443)
 
