@@ -1,4 +1,4 @@
-deep-translator==1.11.4
+deep-translator==1.9.1
 python-dotenv==1.0.0
 python-telegram-bot==20.0
 flask
