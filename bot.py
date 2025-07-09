@@ -1,137 +1,168 @@
-import os, logging
-from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
+import os
+import logging
+from dotenv import load_dotenv
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, Message
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 from deep_translator import GoogleTranslator
+from langdetect import detect, DetectorFactory
 
-# Enable logging
-logging.basicConfig(level=logging.INFO)
+# Initialize deterministic language detection
+DetectorFactory.seed = 0
+
+# Load environment variables
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# Environment variables
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "").split(",")))  # e.g., "12345,67890"
-DEFAULT_LANG = "my"  # Myanmar code
-
-# Supported languages (code:name)
-LANGUAGES = {
-    "en": "English", "zh": "Chinese", "es": "Spanish",
-    "fr": "French",  "de": "German",  "ja": "Japanese",
-    # … add up to 20+ codes …
-    "my": "Myanmar"
+# Supported languages with emoji flags
+SUPPORTED_LANGUAGES = {
+    '🇬🇧 English': 'en',
+    '🇪🇸 Spanish': 'es',
+    '🇫🇷 French': 'fr',
+    '🇩🇪 German': 'de',
+    '🇷🇺 Russian': 'ru',
+    '🇨🇳 Chinese': 'zh',
+    '🇯🇵 Japanese': 'ja',
+    '🇰🇷 Korean': 'ko',
+    '🇲🇲 Myanmar': 'my'
 }
 
-app = Flask(__name__)
-bot = Bot(token=TOKEN)
-dp = Dispatcher(bot, None, use_context=True)
+DEFAULT_LANG = 'my'  # Default output language
 
-# Helpers
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+def get_language_keyboard():
+    """Build responsive language selection keyboard"""
+    lang_list = list(SUPPORTED_LANGUAGES.keys())
+    buttons = [[KeyboardButton(lang)] for lang in lang_list]
+    buttons.append([KeyboardButton("↩️ Back")])
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
-def make_lang_keyboard():
-    keys = [
-        InlineKeyboardButton(f"{code} – {name}", callback_data=f"SETLANG|{code}")
-        for code, name in LANGUAGES.items()
-    ]
-    # two columns
-    keyboard = [keys[i:i+2] for i in range(0, len(keys), 2)]
-    return InlineKeyboardMarkup(keyboard)
-
-# Command Handlers
-def start(update: Update, context: CallbackContext):
-    text = (
-        "🤖🌍 Welcome to Translate For U!\n\n"
-        "I'm your Myanmar translation assistant. Send any text—I auto-detect and translate it to Myanmar."
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send welcome message with language keyboard"""
+    await update.message.reply_text(
+        "🌍 *Translate For U*\n\n"
+        "Choose target language or send text to translate to Myanmar.\n"
+        "Use /help for instructions.",
+        reply_markup=get_language_keyboard(),
+        parse_mode='Markdown'
     )
-    update.message.reply_text(text)
 
-def help_cmd(update: Update, context: CallbackContext):
-    help_text = (
-        "/start - Welcome message\n"
-        "/help - This help message\n"
-        "/translate <text> - Translate specific text\n"
-        "/languages - List supported languages\n"
-        "/setlang <code> - Set preferred output language\n\n"
-        "Or just send any text for instant translation!"
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show help instructions"""
+    await update.message.reply_text(
+        "ℹ️ *How to Use*\n\n"
+        "1. Tap a language to set target\n"
+        "2. Send/forward text to translate\n"
+        "3. Use `/tr es Hello` for quick translations\n"
+        "4. Myanmar → English auto-detection\n\n"
+        "Supported languages:\n" + 
+        "\n".join(f"- {lang}" for lang in SUPPORTED_LANGUAGES),
+        parse_mode='Markdown',
+        reply_markup=get_language_keyboard()
     )
-    update.message.reply_text(help_text)
 
-def languages(update: Update, context: CallbackContext):
-    lines = [f"{code} — {name}" for code, name in LANGUAGES.items()]
-    update.message.reply_text("Supported languages:\n" + "\n".join(lines))
-
-def setlang(update: Update, context: CallbackContext):
-    user = update.effective_user
-    code = context.args[0].lower() if context.args else None
-    if code in LANGUAGES:
-        context.user_data["target_lang"] = code
-        update.message.reply_text(f"✅ Output language set to {LANGUAGES[code]}")
-    else:
-        update.message.reply_text("❌ Invalid code. Use /languages to view codes.")
-
-def translate(update: Update, context: CallbackContext):
-    text = " ".join(context.args)
-    if not text:
-        return update.message.reply_text("Usage: /translate <text>")
-    target = context.user_data.get("target_lang", DEFAULT_LANG)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle all incoming messages"""
     try:
-        result = GoogleTranslator(source='auto', target=target).translate(text)
-        update.message.reply_text(result)
+        message = update.message
+        if not message:
+            return
+
+        # Handle language selection
+        if message.text in SUPPORTED_LANGUAGES:
+            lang_code = SUPPORTED_LANGUAGES[message.text]
+            context.user_data['target_lang'] = lang_code
+            await message.reply_text(
+                f"✅ Set to: {message.text}\nNow send text to translate.",
+                reply_markup=ReplyKeyboardMarkup([[KeyboardButton("↩️ Back")]], resize_keyboard=True)
+            )
+            return
+
+        # Handle back button
+        if message.text == "↩️ Back":
+            await start(update, context)
+            return
+
+        # Extract text from message or caption
+        text = message.text or message.caption
+        if not text:
+            await message.reply_text("⚠️ Please send text or image with caption.")
+            return
+
+        # Handle /tr command
+        if text.startswith('/tr'):
+            parts = text.split(' ', 2)
+            if len(parts) == 3:
+                dest_lang = parts[1]
+                text_to_translate = parts[2]
+            else:
+                await message.reply_text("⚠️ Format: `/tr es Hello`", parse_mode='Markdown')
+                return
+        else:
+            dest_lang = context.user_data.get('target_lang', DEFAULT_LANG)
+            text_to_translate = text
+
+        # Auto-detect Myanmar to English (minimum 4 characters for reliable detection)
+        if len(text_to_translate) >= 4:
+            try:
+                detected = detect(text_to_translate)
+                if detected == 'my' and dest_lang == 'my':
+                    dest_lang = 'en'
+            except Exception as e:
+                logger.warning(f"Detection failed: {e}")
+
+        # Perform translation
+        translated = GoogleTranslator(
+            source='auto',
+            target=dest_lang
+        ).translate(text_to_translate)
+
+        await message.reply_text(
+            f"🔤 *{dest_lang.upper()} Translation*:\n\n{translated}",
+            parse_mode='Markdown',
+            reply_markup=get_language_keyboard()
+        )
+
     except Exception as e:
-        logger.error(e)
-        update.message.reply_text("⚠️ Translation failed. Try again.")
+        logger.error(f"Error: {e}")
+        await message.reply_text(
+            "❌ Translation failed. Try again or /help",
+            reply_markup=get_language_keyboard()
+        )
 
-def broadcast(update: Update, context: CallbackContext):
-    uid = update.effective_user.id
-    if not is_admin(uid):
-        return update.message.reply_text("🚫 Unauthorized.")
-    msg = " ".join(context.args)
-    for user_id in context.bot_data.get("users", []):
-        try:
-            context.bot.send_message(user_id, f"📢 Broadcast:\n\n{msg}")
-        except:
-            pass
-    update.message.reply_text("✅ Broadcast sent.")
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log errors and notify user"""
+    logger.error(f"Error: {context.error}")
+    if isinstance(update, Update) and update.message:
+        await update.message.reply_text(
+            "⚠️ Service temporary unavailable. Please try later.",
+            reply_markup=get_language_keyboard()
+        )
 
-def handle_text(update: Update, context: CallbackContext):
-    uid = update.effective_user.id
-    context.bot_data.setdefault("users", set()).add(uid)
-    # Auto-translate incoming text
-    text = update.message.text
-    target = context.user_data.get("target_lang", DEFAULT_LANG)
-    try:
-        tr = GoogleTranslator(source='auto', target=target).translate(text)
-        update.message.reply_text(tr)
-    except:
-        update.message.reply_text("⚠️ Could not translate.")
+def main() -> None:
+    """Start the bot"""
+    app = Application.builder().token(TOKEN).build()
 
-def button_handler(update: Update, context: CallbackContext):
-    query = update.callback_query
-    data = query.data.split("|")
-    if data[0] == "SETLANG" and data[1] in LANGUAGES:
-        context.user_data["target_lang"] = data[1]
-        query.answer(f"Language set to {LANGUAGES[data[1]]}")
-        query.edit_message_text(f"✅ Preferred output: {LANGUAGES[data[1]]}")
+    # Register handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("tr", handle_message))
+    app.add_handler(MessageHandler(filters.TEXT | filters.CAPTION, handle_message))
+    app.add_error_handler(error_handler)
 
-# Register handlers
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("help", help_cmd))
-dp.add_handler(CommandHandler("languages", languages))
-dp.add_handler(CommandHandler("setlang", setlang))
-dp.add_handler(CommandHandler("translate", translate))
-dp.add_handler(CommandHandler("broadcast", broadcast))
-dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-dp.add_handler(MessageHandler(Filters.callback_query, button_handler))
+    logger.info("🟢 Bot is running...")
+    app.run_polling()
 
-# Webhook route
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dp.process_update(update)
-    return "OK"
-
-if __name__ == "__main__":
-    # Set webhook once, then run Flask
-    bot.set_webhook(f"https://<onesetforu>.pythonanywhere.com/{TOKEN}")
-    app.run(port=8443)
+if __name__ == '__main__':
+    main()
