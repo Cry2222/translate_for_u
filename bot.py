@@ -7,23 +7,22 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
-from pygoogletrans import Translator
+from deep_translator import GoogleTranslator
 
-# Initialize translator
-translator = Translator()
-
-# Get token from environment variable
+# Configuration
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message"""
     await update.message.reply_text(
-        "Hi! I'm a translation bot. Send me text and I'll translate it to English.\n"
-        "You can specify language like: /tr es Hello"
+        "🌍 Translation Bot Ready!\n\n"
+        "Just send me text to translate to English.\n"
+        "Or specify language: /tr <lang> <text>\n"
+        "Example: /tr es Hello"
     )
 
 async def translate_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle translation"""
+    """Handle translation requests"""
     try:
         text = update.message.text
         
@@ -33,28 +32,34 @@ async def translate_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 dest_lang = parts[1]
                 text_to_translate = parts[2]
             else:
-                await update.message.reply_text("Format: /tr <lang_code> <text>")
+                await update.message.reply_text("⚠️ Format: /tr <lang> <text>")
                 return
         else:
             dest_lang = 'en'
             text_to_translate = text
         
-        translation = translator.translate(text_to_translate, dest=dest_lang)
+        translation = GoogleTranslator(
+            source='auto',
+            target=dest_lang
+        ).translate(text_to_translate)
+        
         await update.message.reply_text(
-            f"Translation ({translation.src} → {dest_lang}):\n{translation.text}"
+            f"🔤 Translation ({dest_lang.upper()}):\n{translation}"
         )
+        
     except Exception as e:
-        await update.message.reply_text(f"Error: {str(e)}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
 
 def main() -> None:
-    """Run bot"""
+    """Run the bot"""
     app = Application.builder().token(TOKEN).build()
     
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("tr", translate_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, translate_text))
     
-    print("Bot is running...")
+    print("🟢 Bot is running...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
