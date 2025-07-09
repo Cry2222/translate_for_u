@@ -7,7 +7,7 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
-from googletrans import Translator
+from pygoogletrans import Translator
 
 # Initialize translator
 translator = Translator()
