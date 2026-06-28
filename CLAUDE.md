@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`translate_for_u` is a Telegram bot that provides real-time translation into 9 languages via an interactive keyboard UI. The entire bot logic lives in a single file: `bot.py`.
+`translate_for_u` is a Telegram bot that provides real-time translation into 16 languages via an interactive keyboard UI. The entire bot logic lives in a single file: `bot.py`.
 
 ## Setup
 
@@ -37,7 +37,7 @@ There is no build step, no test suite, and no linting configuration.
 
 **Myanmar auto-switch:** When the detected source language is Myanmar (`my`) and the target is also Myanmar, the bot automatically switches the target to English (`en`) to avoid a no-op translation. `langdetect.DetectorFactory.seed = 0` is set for deterministic detection.
 
-**Supported languages:** `en`, `es`, `fr`, `de`, `ru`, `zh`, `ja`, `ko`, `my`
+**Supported languages:** `en`, `es`, `fr`, `de`, `it`, `pt`, `ru`, `zh`, `ja`, `ko`, `my`, `ar`, `hi`, `vi`, `th`, `id`
 
 **Key dependencies:**
 - `python-telegram-bot==20.6` — async Telegram API wrapper
